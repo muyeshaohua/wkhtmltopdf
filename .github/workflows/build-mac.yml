@@ -26,7 +26,11 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 1
-
+      - name: Use latest qt cve-hardening head
+        run: |
+          cd qt
+          git fetch origin cve-hardening --depth=1
+          git checkout FETCH_HEAD
       - name: Toolchain info      # 先摸清 runner 上的 Xcode/clang 版本
         run: |
           xcodebuild -version
