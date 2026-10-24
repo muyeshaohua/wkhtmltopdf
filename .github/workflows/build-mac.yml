@@ -1,0 +1,72 @@
+name: mac-build
+# =============================================================================
+# wkhtmltopdf 0.12.6 macOS (arm64) 构建 — 基于 cve-hardening 分支
+# 触发: 手动(workflow_dispatch)或推送到 mac-build 分支
+# 产物: Artifacts 里的 bin/wkhtmltopdf(静态单文件)
+#
+# 前置(第③步,需账号操作):
+#   1. GitHub 上 fork wkhtmltopdf/qt 到你的账号
+#   2. push cve-hardening 分支到你的 fork
+#   3. 本仓库(wkhtmltopdf_fork)的 .gitmodules 中 qt 的 url 改成你的 fork 地址
+#      并执行: git submodule sync && git add .gitmodules qt && git commit
+# =============================================================================
+on:
+  workflow_dispatch:
+  push:
+    branches: [ mac-build ]
+
+jobs:
+  build:
+    runs-on: macos-latest        # arm64 (Apple Silicon);如需 x86_64 见文末说明
+    timeout-minutes: 240
+
+    steps:
+      - name: Checkout source (with qt submodule)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Toolchain info      # 先摸清 runner 上的 Xcode/clang 版本
+        run: |
+          xcodebuild -version
+          clang --version
+          sw_vers
+          sysctl -n hw.ncpu
+
+      - name: Install prerequisites
+        run: |
+          # Qt 4.8 构建需要;rsync/perl 自带
+          brew list ruby >/dev/null 2>&1 || true
+          ruby --version
+          perl --version | head -2
+
+      - name: Build Qt + wkhtmltopdf
+        env:
+          QT_DIR:      ${{ github.workspace }}/qt
+          PROJECT_DIR: ${{ github.workspace }}
+        run: bash scripts/build-mac.sh
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: wkhtmltopdf-mac-arm64
+          path: |
+            bin/wkhtmltopdf
+            bin/wkhtmltoimage
+          if-no-files-found: error
+
+# =============================================================================
+# 备注:
+# 1. 架构:当前出 arm64。若将来需要 x86_64(Intel Mac):
+#    - Intel runner(macos-13)已退役,需租真 Mac(MacinCloud 等)或交叉编译
+#    - 交叉编译:加 -arch x86_64 参数双跑 + lipo 合并出 universal binary
+# 2. 预期坑(首次构建大概率遇到,逐个修,修完提交进 cve-hardening 分支):
+#    - 新 clang(15+)对 Qt 4.8 老代码报错:隐式类型转换/-Werror 类,
+#      处理方式与当年 MSVC 2019 适配同类:小补丁直接提交
+#    - JSC(JavaScriptCore)在 arm64 上的汇编问题:若撞上,configure 加
+#      DEFINES+=ENABLE_JIT=0 走解释器(报表类 HTML 性能足够)
+# 3. conan 不需要:第三方库全部 vendored 在 qt/src/3rdparty/(与 Windows 同源)
+# 4. 免费额度:私有仓库 macOS runner 10 倍费率,约 200 分钟/月免费额度;
+#    公开仓库不限量。首次打通建议按公开仓库(库升级源码本为公开内容)评估
+# =============================================================================

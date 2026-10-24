@@ -1,4 +1,4 @@
 [submodule "qt"]
   path   = qt
-  url    = ../qt.git
-  branch = wk_4.8.7
+  url    = https://github.com/muyeshaohua/qt.git
+  branch = cve-hardening
