@@ -56,7 +56,6 @@ sed -i.bak -e 's/CFLAGS CXXFLAGS LDFLAGS/CFLAGS CXXFLAGS OBJECTIVE_CFLAGS LDFLAG
     -no-multimedia -no-audio-backend \
     -no-nis \
     -nomake demos -nomake examples -nomake docs -nomake translations \
-    -no-semantic-layout \
     2>&1 | tee configure.log
 
 echo "--- building Qt (make -j$JOBS, 预计 30~60 分钟) ---"
