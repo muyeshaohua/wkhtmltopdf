@@ -97,12 +97,15 @@ cat > smoke_test.html <<'EOF'
 EOF
 ./bin/wkhtmltopdf smoke_test.html smoke_test.pdf || {
     echo "!!! smoke test crashed - capturing backtrace under lldb"
-    # lldb runs the binary, catches the segfault and prints the stack so the
-    # failing frame is visible in the CI log instead of a bare exit 139
+    # NB: in --batch mode, -o commands after a crashing 'run' are SKIPPED.
+    # -k registers crash-handler commands: they run when the inferior dies,
+    # which is the only way to get the backtrace printed.
     xcrun lldb --batch \
         -o "run smoke_test.html smoke_test.pdf" \
-        -o "thread backtrace" \
-        ./bin/wkhtmltopdf 2>&1 | tail -80
+        -k "thread backtrace" \
+        -k "register read" \
+        ./bin/wkhtmltopdf 2>smoke-lldb.log | tail -120
+    cat smoke-lldb.log
     exit 1
 }
 ls -la smoke_test.pdf
