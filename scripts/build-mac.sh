@@ -87,6 +87,7 @@ make -j"$JOBS" 2>&1 | tee wkbuild.log
 # Step 3: 冒烟测试(无显示器环境下 headless 转换)
 # ---------------------------------------------------------------------------
 echo "=== Step 3: smoke test ==="
+export QT_STYLE_OVERRIDE=plastique
 ls -la bin/
 ./bin/wkhtmltopdf --version
 cat > smoke_test.html <<'EOF'
