@@ -95,7 +95,16 @@ cat > smoke_test.html <<'EOF'
 <table border="1"><tr><td>cell 1</td><td>cell 2</td></tr></table>
 </body></html>
 EOF
-./bin/wkhtmltopdf smoke_test.html smoke_test.pdf
+./bin/wkhtmltopdf smoke_test.html smoke_test.pdf || {
+    echo "!!! smoke test crashed - capturing backtrace under lldb"
+    # lldb runs the binary, catches the segfault and prints the stack so the
+    # failing frame is visible in the CI log instead of a bare exit 139
+    xcrun lldb --batch \
+        -o "run smoke_test.html smoke_test.pdf" \
+        -o "thread backtrace" \
+        ./bin/wkhtmltopdf 2>&1 | tail -80
+    exit 1
+}
 ls -la smoke_test.pdf
 
 echo "=== BUILD COMPLETE: $PROJECT_DIR/bin/wkhtmltopdf ==="
