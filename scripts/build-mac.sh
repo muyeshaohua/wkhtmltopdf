@@ -70,7 +70,9 @@ make -j"$JOBS" 2>&1 | tee build.log || {
 echo "=== Step 2: build wkhtmltopdf ==="
 cd "$PROJECT_DIR"
 export PATH="$QT_DIR/bin:$PATH"
-qmake wkhtmltopdf.pro
+# qmake needs the platform mkspec explicitly when invoked outside the Qt tree
+# (top-level Qt 4 qmake cannot deduce it: "QMAKESPEC has not been set")
+qmake -spec macx-g++ wkhtmltopdf.pro
 make -j"$JOBS" 2>&1 | tee wkbuild.log
 
 # ---------------------------------------------------------------------------
