@@ -63,7 +63,17 @@ make -j"$JOBS" 2>&1 | tee build.log || {
     echo "!!! Qt build FAILED — 保留 configure.log/build.log 供排障,常见问题见 workflow 注释"
     exit 1
 }
-
+# ---------------------------------------------------------------------------
+# Step 1b: install Qt headers into its configure-time prefix so qmake's
+# generated Makefiles (-I/usr/local/Trolltech/Qt-4.8.7/include) resolve.
+# make install from the build tree is a copy, not a rebuild - headers and
+# libs already exist; this is the standard in-tree flow for Qt 4.
+# ---------------------------------------------------------------------------
+echo "--- make install (copy headers/libs to prefix) ---"
+sudo make install 2>&1 | tee install.log || {
+    echo "!!! Qt make install FAILED"
+    exit 1
+}
 # ---------------------------------------------------------------------------
 # Step 2: 编译 wkhtmltopdf 工程
 # ---------------------------------------------------------------------------
