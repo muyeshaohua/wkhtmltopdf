@@ -24,7 +24,7 @@
 #include <QTextStream>
 #include <QMetaEnum>
 #include <QNetworkReply>
-
+#include <QStyleFactory>
 void loadSvg(QSvgRenderer * & ptr, const QString & path, const char * def, int w, int h) {
 	 delete ptr;
 	 ptr = 0;
@@ -94,6 +94,16 @@ void MyLooksStyle::setRadioButtonCheckedSvg(const QString & path) {
 }
 
 MyLooksStyle::MyLooksStyle(): weAreDrawingForms(false) {
+	// Pin the proxy base style to a pure-Qt style. On headless macOS the
+	// default "Macintosh" style (QMacStyle) touches Carbon/HITheme APIs
+	// that need a WindowServer connection and crash with a null
+	// dereference in QApplication::setStyle(). Plastique is self-contained
+	// pixel drawing, which is all we need for painting form controls into
+	// PDFs. On Windows the base style would be QWindowsStyle, which is
+	// fine, but pinning it keeps both platforms on identical rendering.
+	// Fallback: if "plastique" is unavailable, leave the default in place.
+	QStyle * base = QStyleFactory::create(QLatin1String("plastique"));
+	if (base) setBaseStyle(base);
 }
 
 void MyLooksStyle::producingForms(bool f) {weAreDrawingForms=f;}
