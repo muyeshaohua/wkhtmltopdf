@@ -91,9 +91,41 @@ make -j"$JOBS" 2>&1 | tee wkbuild.log
 ls -la bin/
 
 # ---------------------------------------------------------------------------
-# Step 3 (冒烟测试) 暂时移除:wkhtmltopdf 一启动就崩在 QApplication::setStyle
-# (arm64, x19=0 读空指针),先前带 lldb 诊断的版本曾让 CI 挂死 4h+。
-# 二进制本身编译链接正常,先保证成果物可下载,崩溃排查在本地 Mac 上做。
+# Step 3: 冒烟测试
+# qt/cve-hardening 的 setStyle 空指针修复(Tty 模式 old=NULL,clang 16 投机
+# 加载绕过 old && 守卫)已合入后,默认路径应能正常出 PDF。
+# 崩溃时只跑受超时保护的 lldb 诊断,不再跑 wkhtmltoimage/--use-xserver
+# (run #29 教训:无超时的交叉实验会让 CI 挂死);也不再 exit 1 阻断上传。
 # ---------------------------------------------------------------------------
+echo "=== Step 3: smoke test ==="
+SMOKE_FAILED=0
+ls -la bin/
+./bin/wkhtmltopdf --version
+cat > smoke_test.html <<'EOF'
+<html><head><style>body{font-family:sans-serif}</style></head>
+<body><h1>build smoke test</h1><p>table row &amp; column check</p>
+<table border="1"><tr><td>cell 1</td><td>cell 2</td></tr></table>
+</body></html>
+EOF
+./bin/wkhtmltopdf smoke_test.html smoke_test.pdf || {
+    SMOKE_FAILED=1
+    echo "!!! smoke test crashed - capturing backtrace under lldb"
+    # lldb 带看门狗(3 分钟),防诊断工具自身挂死
+    ( xcrun lldb --batch \
+        -o "run smoke_test.html smoke_test.pdf" \
+        -k "thread backtrace" \
+        -k "register read" \
+        ./bin/wkhtmltopdf 2>&1 | tail -120 ) &
+    LLDB_PID=$!
+    ( sleep 180 && kill -9 $LLDB_PID 2>/dev/null ) &
+    WDT=$!
+    wait $LLDB_PID 2>/dev/null
+    kill $WDT 2>/dev/null; wait $WDT 2>/dev/null
+}
+
+if [ "$SMOKE_FAILED" = 1 ]; then
+    echo "!!! WARNING: smoke test still crashed - artifact uploaded anyway for local debugging"
+fi
+ls -la smoke_test.pdf 2>/dev/null || echo "(no smoke_test.pdf - conversion crashed)"
 
 echo "=== BUILD COMPLETE: $PROJECT_DIR/bin/wkhtmltopdf ==="
