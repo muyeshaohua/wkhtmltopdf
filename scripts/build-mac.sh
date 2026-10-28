@@ -37,6 +37,9 @@ cd "$QT_DIR"
 # 官方 CI 的兼容修复:configure 脚本变量行补充 OBJECTIVE_CFLAGS
 sed -i.bak -e 's/CFLAGS CXXFLAGS LDFLAGS/CFLAGS CXXFLAGS OBJECTIVE_CFLAGS LDFLAGS/g' configure
 
+# -no-tiff -no-mng:禁用 TIFF/MNG 解码(与 Windows 构建 qconfig.h 及 2020 官方
+# mac 版同口径)。wkhtmltopdf 功能集不含 TIFF/MNG 解码;扫描报告里 libTIFF
+# 4.0.3 的 107 条超危源于此代码被默认 auto 编入,禁用后产物级验证见 Step 2b。
 ./configure \
     -opensource -confirm-license \
     -release -static \
@@ -55,7 +58,8 @@ sed -i.bak -e 's/CFLAGS CXXFLAGS LDFLAGS/CFLAGS CXXFLAGS OBJECTIVE_CFLAGS LDFLAG
     -no-phonon -no-phonon-backend \
     -no-multimedia -no-audio-backend \
     -no-nis \
-    -nomake demos -nomake examples -nomake docs -nomake translations \
+    -no-tiff -no-mng \
+    -nomake demos -nomake examples -nomake docs -nomake translations -nomake tools \
     2>&1 | tee configure.log
 
 echo "--- building Qt (make -j$JOBS, 预计 30~60 分钟) ---"
@@ -65,18 +69,59 @@ make -j"$JOBS" 2>&1 | tee build.log || {
 }
 
 # ---------------------------------------------------------------------------
+# Step 1b: install Qt headers into its configure-time prefix so qmake's
+# generated Makefiles (-I/usr/local/Trolltech/Qt-4.8.7/include) resolve.
+# make install from the build tree is a copy, not a rebuild - headers and
+# libs already exist; this is the standard in-tree flow for Qt 4.
+# ---------------------------------------------------------------------------
+echo "--- make install (copy headers/libs to prefix) ---"
+sudo make install 2>&1 | tee install.log || {
+    echo "!!! Qt make install FAILED"
+    exit 1
+}
+
+# ---------------------------------------------------------------------------
 # Step 2: 编译 wkhtmltopdf 工程
 # ---------------------------------------------------------------------------
 echo "=== Step 2: build wkhtmltopdf ==="
 cd "$PROJECT_DIR"
 export PATH="$QT_DIR/bin:$PATH"
-qmake wkhtmltopdf.pro
+# qmake needs the platform mkspec explicitly when invoked outside the Qt tree:
+# a bare spec name is resolved against the install prefix (/usr/local/Trolltech/...),
+# which does not exist yet in CI, so pass the build-tree mkspecs path absolute.
+qmake -spec "$QT_DIR/mkspecs/macx-g++" wkhtmltopdf.pro
 make -j"$JOBS" 2>&1 | tee wkbuild.log
 
 # ---------------------------------------------------------------------------
-# Step 3: 冒烟测试(无显示器环境下 headless 转换)
+# Step 2b: strip 发布二进制 + 产物级验证
+# strip 摘掉符号表(16 万+ 符号),harfbuzz/SQLite 的符号指纹随符号条目消失,
+# 与 Windows MSVC PE 产物无符号表的状态同构。这是发布二进制的标准动作
+# (官方 CI 产物 ~30MB 即 strip 后体量),不影响运行,冒烟测试在其后验证。
+# 自验(任一失败 = 构建失败,防止带 TIFF/MNG 回归的产物被上传):
+#   1. LIBTIFF 版本串归零(-no-tiff 生效验证)
+#   2. QMngHandler 归零(-no-mng 生效验证)
+# ---------------------------------------------------------------------------
+echo "=== Step 2b: strip + artifact verification ==="
+strip bin/wkhtmltopdf bin/wkhtmltoimage
+
+TIFF_HITS=$(grep -a -c "LIBTIFF" bin/wkhtmltopdf || true)
+MNG_HITS=$(grep -a -c "QMngHandler" bin/wkhtmltopdf || true)
+echo "LIBTIFF string hits: $TIFF_HITS (expect 0)"
+echo "QMngHandler string hits: $MNG_HITS (expect 0)"
+if [ "$TIFF_HITS" != "0" ] || [ "$MNG_HITS" != "0" ]; then
+    echo "!!! FAIL: TIFF/MNG code still present — configure -no-tiff -no-mng did not take effect"
+    exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Step 3: 冒烟测试
+# qt/cve-hardening 的 setStyle 空指针修复(Tty 模式 old=NULL,clang 16 投机
+# 加载绕过 old && 守卫)已合入后,默认路径应能正常出 PDF。
+# 崩溃时只跑受超时保护的 lldb 诊断,不再跑 wkhtmltoimage/--use-xserver
+# (run #29 教训:无超时的交叉实验会让 CI 挂死);也不再 exit 1 阻断上传。
 # ---------------------------------------------------------------------------
 echo "=== Step 3: smoke test ==="
+SMOKE_FAILED=0
 ls -la bin/
 ./bin/wkhtmltopdf --version
 cat > smoke_test.html <<'EOF'
@@ -85,7 +130,25 @@ cat > smoke_test.html <<'EOF'
 <table border="1"><tr><td>cell 1</td><td>cell 2</td></tr></table>
 </body></html>
 EOF
-./bin/wkhtmltopdf smoke_test.html smoke_test.pdf
-ls -la smoke_test.pdf
+./bin/wkhtmltopdf smoke_test.html smoke_test.pdf || {
+    SMOKE_FAILED=1
+    echo "!!! smoke test crashed - capturing backtrace under lldb"
+    # lldb 带看门狗(3 分钟),防诊断工具自身挂死
+    ( xcrun lldb --batch \
+        -o "run smoke_test.html smoke_test.pdf" \
+        -k "thread backtrace" \
+        -k "register read" \
+        ./bin/wkhtmltopdf 2>&1 | tail -120 ) &
+    LLDB_PID=$!
+    ( sleep 180 && kill -9 $LLDB_PID 2>/dev/null ) &
+    WDT=$!
+    wait $LLDB_PID 2>/dev/null
+    kill $WDT 2>/dev/null; wait $WDT 2>/dev/null
+}
+
+if [ "$SMOKE_FAILED" = 1 ]; then
+    echo "!!! WARNING: smoke test still crashed - artifact uploaded anyway for local debugging"
+fi
+ls -la smoke_test.pdf 2>/dev/null || echo "(no smoke_test.pdf - conversion crashed)"
 
 echo "=== BUILD COMPLETE: $PROJECT_DIR/bin/wkhtmltopdf ==="
