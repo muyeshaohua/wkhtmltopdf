@@ -37,6 +37,9 @@ cd "$QT_DIR"
 # 官方 CI 的兼容修复:configure 脚本变量行补充 OBJECTIVE_CFLAGS
 sed -i.bak -e 's/CFLAGS CXXFLAGS LDFLAGS/CFLAGS CXXFLAGS OBJECTIVE_CFLAGS LDFLAGS/g' configure
 
+# -no-tiff -no-mng:禁用 TIFF/MNG 解码(与 Windows 构建 qconfig.h 及 2020 官方
+# mac 版同口径)。wkhtmltopdf 功能集不含 TIFF/MNG 解码;扫描报告里 libTIFF
+# 4.0.3 的 107 条超危源于此代码被默认 auto 编入,禁用后产物级验证见 Step 2b。
 ./configure \
     -opensource -confirm-license \
     -release -static \
@@ -55,6 +58,7 @@ sed -i.bak -e 's/CFLAGS CXXFLAGS LDFLAGS/CFLAGS CXXFLAGS OBJECTIVE_CFLAGS LDFLAG
     -no-phonon -no-phonon-backend \
     -no-multimedia -no-audio-backend \
     -no-nis \
+    -no-tiff -no-mng \
     -nomake demos -nomake examples -nomake docs -nomake translations -nomake tools \
     2>&1 | tee configure.log
 
@@ -88,7 +92,26 @@ export PATH="$QT_DIR/bin:$PATH"
 qmake -spec "$QT_DIR/mkspecs/macx-g++" wkhtmltopdf.pro
 make -j"$JOBS" 2>&1 | tee wkbuild.log
 
-ls -la bin/
+# ---------------------------------------------------------------------------
+# Step 2b: strip 发布二进制 + 产物级验证
+# strip 摘掉符号表(16 万+ 符号),harfbuzz/SQLite 的符号指纹随符号条目消失,
+# 与 Windows MSVC PE 产物无符号表的状态同构。这是发布二进制的标准动作
+# (官方 CI 产物 ~30MB 即 strip 后体量),不影响运行,冒烟测试在其后验证。
+# 自验(任一失败 = 构建失败,防止带 TIFF/MNG 回归的产物被上传):
+#   1. LIBTIFF 版本串归零(-no-tiff 生效验证)
+#   2. QMngHandler 归零(-no-mng 生效验证)
+# ---------------------------------------------------------------------------
+echo "=== Step 2b: strip + artifact verification ==="
+strip bin/wkhtmltopdf bin/wkhtmltoimage
+
+TIFF_HITS=$(grep -a -c "LIBTIFF" bin/wkhtmltopdf || true)
+MNG_HITS=$(grep -a -c "QMngHandler" bin/wkhtmltopdf || true)
+echo "LIBTIFF string hits: $TIFF_HITS (expect 0)"
+echo "QMngHandler string hits: $MNG_HITS (expect 0)"
+if [ "$TIFF_HITS" != "0" ] || [ "$MNG_HITS" != "0" ]; then
+    echo "!!! FAIL: TIFF/MNG code still present — configure -no-tiff -no-mng did not take effect"
+    exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # Step 3: 冒烟测试
