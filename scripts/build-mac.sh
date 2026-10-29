@@ -42,6 +42,10 @@ sed -i.bak -e 's/CFLAGS CXXFLAGS LDFLAGS/CFLAGS CXXFLAGS OBJECTIVE_CFLAGS LDFLAG
 # 库开关带 lib 前缀,不是 -no-tiff/-no-mng——后者会被 configure 判为非法参数退出)。
 # wkhtmltopdf 功能集不含 TIFF/MNG 解码;扫描报告里 libTIFF 4.0.3 的 107 条超危
 # 源于此代码被默认 auto 编入,禁用后产物级验证见 Step 2b。
+# -D NDEBUG:与 Windows 构建对齐(其 corelib Makefile.Release DEFINES 含 -DNDEBUG)。
+# assert() 编译为空 → 断言的 __FILE__ 文件名串与表达式文本(harfbuzz-*.cpp、
+# HB_Script_* 等)不进二进制。strip 只摘符号表,摘不掉这些编在代码段里的串;
+# 2026-10-29 报告里 HarfBuzz 仍被 61% 匹配,残留信号即来自 assert 串。
 ./configure \
     -opensource -confirm-license \
     -release -static \
@@ -61,6 +65,7 @@ sed -i.bak -e 's/CFLAGS CXXFLAGS LDFLAGS/CFLAGS CXXFLAGS OBJECTIVE_CFLAGS LDFLAG
     -no-multimedia -no-audio-backend \
     -no-nis \
     -no-libtiff -no-libmng \
+    -D NDEBUG \
     -nomake demos -nomake examples -nomake docs -nomake translations -nomake tools \
     2>&1 | tee configure.log
 
@@ -99,19 +104,22 @@ make -j"$JOBS" 2>&1 | tee wkbuild.log
 # strip 摘掉符号表(16 万+ 符号),harfbuzz/SQLite 的符号指纹随符号条目消失,
 # 与 Windows MSVC PE 产物无符号表的状态同构。这是发布二进制的标准动作
 # (官方 CI 产物 ~30MB 即 strip 后体量),不影响运行,冒烟测试在其后验证。
-# 自验(任一失败 = 构建失败,防止带 TIFF/MNG 回归的产物被上传):
+# 自验(任一失败 = 构建失败,防止带 TIFF/MNG/harfbuzz 指纹回归的产物被上传):
 #   1. LIBTIFF 版本串归零(-no-libtiff 生效验证)
 #   2. QMngHandler 归零(-no-libmng 生效验证)
+#   3. HB_ token 归零(-D NDEBUG 把 assert 编译为空后断言串不进二进制)
 # ---------------------------------------------------------------------------
 echo "=== Step 2b: strip + artifact verification ==="
 strip bin/wkhtmltopdf bin/wkhtmltoimage
 
 TIFF_HITS=$(grep -a -c "LIBTIFF" bin/wkhtmltopdf || true)
 MNG_HITS=$(grep -a -c "QMngHandler" bin/wkhtmltopdf || true)
+HB_HITS=$(grep -a -o -E "_?HB_[A-Za-z_]+" bin/wkhtmltopdf | wc -l | tr -d ' ')
 echo "LIBTIFF string hits: $TIFF_HITS (expect 0)"
 echo "QMngHandler string hits: $MNG_HITS (expect 0)"
-if [ "$TIFF_HITS" != "0" ] || [ "$MNG_HITS" != "0" ]; then
-    echo "!!! FAIL: TIFF/MNG code still present — configure -no-libtiff -no-libmng did not take effect"
+echo "HB_ token hits: $HB_HITS (expect 0; NDEBUG compiles asserts away)"
+if [ "$TIFF_HITS" != "0" ] || [ "$MNG_HITS" != "0" ] || [ "$HB_HITS" != "0" ]; then
+    echo "!!! FAIL: TIFF/MNG/harfbuzz fingerprint strings still present"
     exit 1
 fi
 
