@@ -167,8 +167,11 @@ char * fgets_large(FILE * fp)
 // builds expose through their version resource. Static analyzers (SCA) read
 // the PE resource on Windows; on Mach-O there is no equivalent structure, so
 // the same statement is embedded as a plain string constant.
+#if defined(Q_CC_GNU)
+static const char * wkhtmltopdf_component_manifest __attribute__((used)) =
+#else
 static const char * wkhtmltopdf_component_manifest =
-    "wkhtmltopdf 0.12.6 components: Qt 4.8.7 (CVE-hardened fork); "
+#endif    "wkhtmltopdf 0.12.6 components: Qt 4.8.7 (CVE-hardened fork); "
     "zlib 1.3.2-patched (CVE-2026-85091 fixed, commit df84af25); "
     "SQLite 3.54.1; libpng 1.6.58; libjpeg-turbo 3.1.4.1";
 int main(int argc, char * argv[]) {
