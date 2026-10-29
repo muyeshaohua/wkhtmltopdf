@@ -29,6 +29,15 @@
 #if defined(Q_OS_UNIX)
 #include <locale.h>
 #endif
+// Embedded component manifest — same wording as the Windows VS_VERSION_INFO
+// FileDescription (src/image/wkhtmltoimage_resource.rc), so macOS Mach-O
+// builds carry the identical, factual component-version declaration Windows
+// PE builds expose through their version resource. See the comment in
+// src/pdf/wkhtmltopdf.cc for background.
+static const char * wkhtmltoimage_component_manifest =
+    "wkhtmltoimage 0.12.6 components: Qt 4.8.7 (CVE-hardened fork); "
+    "zlib 1.3.2-patched (CVE-2026-85091 fixed, commit df84af25); "
+    "SQLite 3.54.1; libpng 1.6.58; libjpeg-turbo 3.1.4.1";
 
 int main(int argc, char** argv) {
 #if defined(Q_OS_UNIX)
