@@ -37,9 +37,11 @@ cd "$QT_DIR"
 # 官方 CI 的兼容修复:configure 脚本变量行补充 OBJECTIVE_CFLAGS
 sed -i.bak -e 's/CFLAGS CXXFLAGS LDFLAGS/CFLAGS CXXFLAGS OBJECTIVE_CFLAGS LDFLAGS/g' configure
 
-# -no-tiff -no-mng:禁用 TIFF/MNG 解码(与 Windows 构建 qconfig.h 及 2020 官方
-# mac 版同口径)。wkhtmltopdf 功能集不含 TIFF/MNG 解码;扫描报告里 libTIFF
-# 4.0.3 的 107 条超危源于此代码被默认 auto 编入,禁用后产物级验证见 Step 2b。
+# -no-libtiff -no-libmng:禁用 TIFF/MNG 解码(与 Windows 构建 qconfig.h 及 2020 官方
+# mac 版同口径)。注意开关名是 -no-libtiff/-no-libmng(Qt 4.8 configure 的 3rdparty
+# 库开关带 lib 前缀,不是 -no-tiff/-no-mng——后者会被 configure 判为非法参数退出)。
+# wkhtmltopdf 功能集不含 TIFF/MNG 解码;扫描报告里 libTIFF 4.0.3 的 107 条超危
+# 源于此代码被默认 auto 编入,禁用后产物级验证见 Step 2b。
 ./configure \
     -opensource -confirm-license \
     -release -static \
@@ -58,7 +60,7 @@ sed -i.bak -e 's/CFLAGS CXXFLAGS LDFLAGS/CFLAGS CXXFLAGS OBJECTIVE_CFLAGS LDFLAG
     -no-phonon -no-phonon-backend \
     -no-multimedia -no-audio-backend \
     -no-nis \
-    -no-tiff -no-mng \
+    -no-libtiff -no-libmng \
     -nomake demos -nomake examples -nomake docs -nomake translations -nomake tools \
     2>&1 | tee configure.log
 
@@ -98,8 +100,8 @@ make -j"$JOBS" 2>&1 | tee wkbuild.log
 # 与 Windows MSVC PE 产物无符号表的状态同构。这是发布二进制的标准动作
 # (官方 CI 产物 ~30MB 即 strip 后体量),不影响运行,冒烟测试在其后验证。
 # 自验(任一失败 = 构建失败,防止带 TIFF/MNG 回归的产物被上传):
-#   1. LIBTIFF 版本串归零(-no-tiff 生效验证)
-#   2. QMngHandler 归零(-no-mng 生效验证)
+#   1. LIBTIFF 版本串归零(-no-libtiff 生效验证)
+#   2. QMngHandler 归零(-no-libmng 生效验证)
 # ---------------------------------------------------------------------------
 echo "=== Step 2b: strip + artifact verification ==="
 strip bin/wkhtmltopdf bin/wkhtmltoimage
@@ -109,7 +111,7 @@ MNG_HITS=$(grep -a -c "QMngHandler" bin/wkhtmltopdf || true)
 echo "LIBTIFF string hits: $TIFF_HITS (expect 0)"
 echo "QMngHandler string hits: $MNG_HITS (expect 0)"
 if [ "$TIFF_HITS" != "0" ] || [ "$MNG_HITS" != "0" ]; then
-    echo "!!! FAIL: TIFF/MNG code still present — configure -no-tiff -no-mng did not take effect"
+    echo "!!! FAIL: TIFF/MNG code still present — configure -no-libtiff -no-libmng did not take effect"
     exit 1
 fi
 
