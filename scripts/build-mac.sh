@@ -114,8 +114,10 @@ strip bin/wkhtmltopdf bin/wkhtmltoimage
 
 TIFF_HITS=$(grep -a -c "LIBTIFF" bin/wkhtmltopdf || true)
 MNG_HITS=$(grep -a -c "QMngHandler" bin/wkhtmltopdf || true)
-HB_HITS=$(grep -a -o -E "_?HB_[A-Za-z_]+" bin/wkhtmltopdf | wc -l | tr -d ' ')
-echo "LIBTIFF string hits: $TIFF_HITS (expect 0)"
+# || true is load-bearing: grep exits 1 on zero matches, and with
+# set -euo pipefail that would abort the script right here — exactly when
+# the verification SUCCEEDS. wc -l still yields 0 for an empty stream.
+HB_HITS=$({ grep -a -o -E "_?HB_[A-Za-z_]+" bin/wkhtmltopdf || true; } | wc -l | tr -d ' ')echo "LIBTIFF string hits: $TIFF_HITS (expect 0)"
 echo "QMngHandler string hits: $MNG_HITS (expect 0)"
 echo "HB_ token hits: $HB_HITS (expect 0; NDEBUG compiles asserts away)"
 if [ "$TIFF_HITS" != "0" ] || [ "$MNG_HITS" != "0" ] || [ "$HB_HITS" != "0" ]; then
